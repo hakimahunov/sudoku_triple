@@ -7,7 +7,8 @@ local scene = composer.newScene()
 -- Code outside of the scene event functions below will only be executed ONCE unless
 -- the scene is removed entirely (not recycled) via "composer.removeScene()"
 -- -----------------------------------------------------------------------------------
-local backGroup, gridGroup, cellValGroup, controlGroup, infoGroup, draftGroup, draftSubGroup
+local backGroup, gridGroup, cellValGroup, controlGroup, infoGroup, draftGroup, draftSubGroup, timerText, timerID
+local timerValue = 0
 local rows = 9 --Matrix 9x9
 local draftMode = 0
 local colors =
@@ -54,6 +55,35 @@ local blockCells =
 }
 local chosenCell = 0
 local sudokuTable = {}
+
+local function buildInfoPanel()
+	local options =
+	{
+		text = "00:00",
+		x = 80,
+		y = -80,
+		font = native.systemFont,
+		fontSize = 50,
+		align = "center"
+	}
+	timerText = display.newText( options )
+	timerText:setFillColor( unpack( colors.black ) )
+	infoGroup:insert(timerText)
+
+	local arrow = display.newImageRect( infoGroup, "undo.png", 50, 50 )
+	arrow.x = 700
+	arrow.y = -80
+
+end
+
+local setTimer = function()
+	timerValue = timerValue + 1
+	local minutes = timerValue / 60
+	local seconds = timerValue % 60
+	if (minutes < 10) then minutes = "0" + minutes end;
+    if (seconds < 10) then seconds = "0" + seconds end;
+	timerText.text = string.format("%02d:%02d", minutes, seconds)
+end
 
 --Set defauld colors for cells
 local function setDefaultCellColor()
@@ -287,7 +317,7 @@ local function isUniqueTable(table)
 	return true
 end
 
-local function validRow(rowCell)
+local function validRow(rowCell, checkUniqueness)
 	local summ = 0
 	local uniquenessTable = {0,0,0,0,0,0,0,0,0}
 	local num, rowHead
@@ -299,10 +329,12 @@ local function validRow(rowCell)
 				num = 0
 			else
 				num = tonumber( num )
+				if (checkUniqueness and uniquenessTable[num] == 1) then return false end
 				uniquenessTable[num] = 1
 			end
 			summ = summ + num
 		end
+		if (checkUniqueness) then return true end
 		if (summ ~= 45 or not isUniqueTable(uniquenessTable)) then return false end
 	else
 		for i = 1, 81, 1 do --Check validity of all rows.
@@ -319,7 +351,7 @@ local function validRow(rowCell)
 	return true
 end
 
-local function validCulumn(columnCell)
+local function validCulumn(columnCell, checkUniqueness)
 	local summ = 0
 	local uniquenessTable = {0,0,0,0,0,0,0,0,0}
 	local num, columnHead
@@ -332,10 +364,12 @@ local function validCulumn(columnCell)
 				num = 0
 			else
 				num = tonumber( num )
+				if (checkUniqueness and uniquenessTable[num] == 1) then return false end
 				uniquenessTable[num] = 1
 			end
 			summ = summ + num
 		end
+		if (checkUniqueness) then return true end
 		if (summ ~= 45 or not isUniqueTable(uniquenessTable)) then return false end
 	else
 		for i = 1, 9, 1 do --Check validity of all columns.
@@ -352,7 +386,7 @@ local function validCulumn(columnCell)
 	return true
 end
 
-local function validBlock(blockNumber, liveCheck)
+local function validBlock(blockNumber, liveCheck, checkUniqueness)
 	local summ = 0
 	local uniquenessTable = {0,0,0,0,0,0,0,0,0}
 	local num
@@ -364,6 +398,7 @@ local function validBlock(blockNumber, liveCheck)
 					num = 0
 				else
 					num = tonumber( num )
+					if (checkUniqueness and uniquenessTable[num] == 1) then return false end
 					uniquenessTable[num] = 1
 				end
 			else
@@ -372,6 +407,7 @@ local function validBlock(blockNumber, liveCheck)
 			end
 			summ = summ + num
 		end
+		if (checkUniqueness) then return true end
 		if (summ ~= 45 or not isUniqueTable(uniquenessTable)) then return false end
 	else
 		for i = 1, #blockCells.blocks, 1 do --Check validity of all block.
@@ -509,9 +545,8 @@ local function clearDraft()
 end
 -- Function to handle button events
 local function handleButtonEvent( event )
-
 	if ("moved" == event.phase and event.target:getLabel() ~= "") then
-		print(event.x)
+		--print(event.x)
 	elseif ( "ended" == event.phase ) then
 		local label = event.target:getLabel()
 		if (label ~= "" and chosenCell ~= 0 ) then
@@ -519,11 +554,22 @@ local function handleButtonEvent( event )
 				if cellValGroup[chosenCell].text ~= label then
 					clearDraft()
 					cellValGroup[chosenCell].text = label
+					if (not validRow(chosenCell, true) or
+						not validCulumn(chosenCell, true) or
+						not validBlock(getBlockNumber(chosenCell), true, true)) then
+							cellValGroup[chosenCell]:setFillColor(unpack( colors.red ))
+					else
+						cellValGroup[chosenCell]:setFillColor(unpack( colors.dodgerblue ))
+						completeEffect(chosenCell, validRow(chosenCell), validCulumn(chosenCell), validBlock(getBlockNumber(chosenCell), true))
+						if (validLiveGrid()) then
+							timer.pause( timerID )
+							native.showAlert( "title", "OK" )
+						end
+					end
+
 				else
 					cellValGroup[chosenCell].text = ""
 				end
-				completeEffect(chosenCell, validRow(chosenCell), validCulumn(chosenCell), validBlock(getBlockNumber(chosenCell), true))
-				if (validLiveGrid()) then native.showAlert( "title", "OK" ) end
 			else
 				cellValGroup[chosenCell].text = ""
 				if (draftGroup[chosenCell][tonumber( label )].text == "") then
@@ -635,9 +681,11 @@ function scene:create( event )
     background.x = display.contentCenterX
     background.y = display.contentCenterY
 
+	buildInfoPanel()
 	buildGrid()
 	buildButtonPanel()
 	generateSudoku()
+
 end
 
 
@@ -652,6 +700,7 @@ function scene:show( event )
 
 	elseif ( phase == "did" ) then
 		-- Code here runs when the scene is entirely on screen
+		timerID = timer.performWithDelay( 1000, setTimer, -1)
 		physics.start()
 
 
